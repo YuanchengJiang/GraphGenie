@@ -6,12 +6,13 @@ GraphGenie is an bug-finding tool to detect logic bugs and performance issues (w
 
 If you use, extend or build upon GraphGenie we kindly ask you to cite the our ICSE'24 paper:
 ```
-@inproceedings{yuancheng2024graphgenie,
+@inproceedings{jiang2024detecting,
   title={Detecting Logic Bugs in Graph Database Management Systems via Injective and Surjective Graph Query Transformation},
   author={Jiang, Yuancheng and Liu, Jiahao and Ba, Jinsheng and Yap, Roland H.C. and Liang, Zhenkai and Rigger, Manuel},
-  booktitle={{ICSE} '24: The 46th International Conference on Software Engineering},
+  booktitle={Proceedings of the 46th International Conference on Software Engineering},
   publisher = {{ACM}},
-  year={2024}
+  year={2024},
+  doi = {10.1145/3597503.3623307}
 }
 ```
 
