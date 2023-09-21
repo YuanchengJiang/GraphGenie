@@ -15,6 +15,7 @@ class CypherQueryMutator:
         self.random_symbol_len = int(config['query_generation_args']['random_symbol_len'])
         self.graph_pattern_mutation = int(config['testing_strategy']['graph_pattern_mutation'])
         self.mutated_query_num = int(config['testing_configs']['mutated_query_num'])
+        self.cyclic_symbol = config['query_generation_args']['cyclic_symbol']
         self.node_labels = node_labels
         self.edge_labels = edge_labels
         self.node_properties = node_properties
@@ -439,14 +440,14 @@ class CypherQueryMutator:
             self.equivalent_queries_eval.append([1, last_eval[1], last_eval[2]])
 
     def generate_equivalent_unfold_cyclic(self, mode=0):
-        if "cccccccc" in self.base_path:
-            new_path = self.base_path.replace("cccccccc", "start", 1).replace("cccccccc", "end", 1)
+        if self.cyclic_symbol in self.base_path:
+            new_path = self.base_path.replace(self.cyclic_symbol, "start", 1).replace(self.cyclic_symbol, "end", 1)
             if "WHERE " in self.base_predicate:
                 new_predicate = self.base_predicate + " AND start=end"
             else:
                 new_predicate = "WHERE start=end"
-            new_predicate = new_predicate.replace("cccccccc", "start")
-            new_return = self.base_return.replace("cccccccc", "start")
+            new_predicate = new_predicate.replace(self.cyclic_symbol, "start")
+            new_return = self.base_return.replace(self.cyclic_symbol, "start")
             pattern = self.cypher_query_pattern
             mutated_query = pattern.format(
                 _match = self.base_match,
@@ -617,7 +618,7 @@ class CypherQueryMutator:
                 split_sym = split_sym_test.split(' ')[1].split(')')[0]
             else:
                 split_sym = split_sym_test.split(')')[0]
-            if split_sym not in self.base_node_symbols or split_sym=="cccccccc":
+            if split_sym not in self.base_node_symbols or split_sym==self.cyclic_symbol:
                 return
             split_pattern = "{sym}{node_label}),({sym}"
             after_split = path.split(split_sym)
@@ -634,7 +635,7 @@ class CypherQueryMutator:
         else:
             path = self.mutated_path
             split_sym = self.mutated_return.split('(')[1].split(')')[0]
-            if split_sym not in self.mutated_node_symbols or split_sym=="cccccccc":
+            if split_sym not in self.mutated_node_symbols or split_sym==self.cyclic_symbol:
                 return
             split_pattern = "{sym}{node_label}),({sym}"
             after_split = path.split(split_sym)
@@ -669,7 +670,7 @@ class CypherQueryMutator:
                 return
             target_label = choice(node_label_list)
             target = target_label.split(':')[0][1:]
-            if "cccccccc" in target:
+            if self.cyclic_symbol in target:
                 return
             label = target_label.split(':')[1][:-1]
             new_path = path.split(target_label)[0] + target_label.split(':')[0] + (')' if target_label[0]=='(' else ']') + path.split(target_label)[1]
@@ -694,7 +695,7 @@ class CypherQueryMutator:
                 return
             target_label = choice(node_label_list)
             target = target_label.split(':')[0][1:]
-            if "cccccccc" in target:
+            if self.cyclic_symbol in target:
                 return
             label = target_label.split(':')[1][:-1]
             self.mutated_path = path.split(target_label)[0] + target_label.split(':')[0] + (')' if target_label[0]=='(' else ']') + path.split(target_label)[1]
