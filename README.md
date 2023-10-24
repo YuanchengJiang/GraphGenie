@@ -67,6 +67,8 @@ node_labels, edge_labels, node_properties, connectivity_matrix
 ```
 in main.py line 332, or implement your own schema scanner (should be similar to Neo4j one).
 
+Detected bugs can be found in `./bug.log` (logic bugs or performance issues) or `./exception.log` (internal errors). The `./testing.log` records all executed queries.
+
 ## Todos
 
 We only implement the prototype code. There are still many todos:
