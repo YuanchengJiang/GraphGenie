@@ -42,15 +42,10 @@ wget https://dist.neo4j.org/neo4j-community-5.11.0-unix.tar.gz;
 tar -xvf neo4j-community-5.11.0-unix.tar.gz;
 git clone https://github.com/neo4j-graph-examples/recommendations.git;
 cd neo4j-community-5.11.0;
+./bin/neo4j-admin dbms set-initial-password 12344321
 ./bin/neo4j-admin database load --from-stdin --overwrite-destination=true neo4j < ../recommendations/data/recommendations-50.dump;
 echo "dbms.transaction.timeout=30s" >> ./conf/neo4j.conf
 ./bin/neo4j start
-```
-Then please connect to the server to config your password
-(the default username:neo4j password:neo4j)
-(password is 12344321 in our default setting)
-```
-./bin/cypher-shell
 ```
 
 ## Usage
