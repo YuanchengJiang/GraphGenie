@@ -4,6 +4,11 @@ import string
 import configparser
 from random import choice, randint
 
+# Note: mutation rules are not guaranteed to be true in every graph database system
+# we mainly design the rules for neo4j and it would be also possible to have some
+# false alarms due to inaccurate mutation rules in some corner cases
+# I'd be happy to fix them ;)
+
 class CypherQueryMutator:
     cypher_query_pattern = "{_match} {_path} {_predicate} {_return} {_other}"
 
@@ -22,6 +27,7 @@ class CypherQueryMutator:
         self.connectivity_matrix = connectivity_matrix
         pass
 
+    # to fetch five elements in cypher query; same with query generator
     def cypher_query_parser(self, query):
         _match = "OPTIONAL MATCH" if "OPTIONAL" in query else "MATCH"
         _path = query.split("MATCH ")[1].split(' ')[0].strip(' ')
@@ -69,6 +75,7 @@ class CypherQueryMutator:
         self.mutated_node_symbols = []
         self.mutated_edge_symbols = []
 
+        # GQT: graph query transformation; it alters graph query pattern
         # we split rules into three classes: Non-GQT, Property-GQT, and Structure-GQT
         self.Non_GQT = [1,0,0]
         self.Property_GQT = [0,1,0]
@@ -105,6 +112,7 @@ class CypherQueryMutator:
         self.mutated_match, self.mutated_path, self.mutated_predicate, self.mutated_return, self.mutated_other = self.cypher_query_parser(base_query)
         self.mutated_symbols, self.mutated_node_symbols, self.mutated_edge_symbols = self.path_parser(self.mutated_path)
 
+    # we do not have rules combinations in restricted mutations for now
     def generate_restricted_queries(self, base_query):
         self.query_parser(base_query)
         if "count(" in self.base_return:
@@ -115,83 +123,74 @@ class CypherQueryMutator:
         return self.restricted_queries, self.restricted_queries_eval
 
     def generate_restricted_add_node_label(self, mode=0):
-        if self.graph_pattern_mutation==0:
+        candidates = re.findall("\([A-Za-z:|]+\)", self.base_path)
+        if len(candidates)==0:
             return
-        if mode==0:
-            if "()" not in self.base_path:
-                return
-            new_path = self.base_path.replace("()", "({}:{})".format(self.random_symbol(), choice(self.node_labels)), 1)
-            pattern = self.cypher_query_pattern
-            mutated_query = pattern.format(
-                _match = self.base_match,
-                _path = new_path,
-                _predicate = self.base_predicate,
-                _return = self.base_return,
-                _other = self.base_other
-            )
+        victim = choice(candidates)
+        new_node = victim.split(')')[0] + ("|" if ":" in victim else ":") + "{})".format(choice(self.node_labels))
+        new_path = self.base_path.replace(victim, new_node)
+        mutated_query=self.cypher_query_pattern.format(
+            _match = self.base_match,
+            _path = new_path,
+            _predicate = self.base_predicate,
+            _return = self.base_return,
+            _other = self.base_other
+        )
         mutated_query = self.strip_spaces(mutated_query)
         self.restricted_queries.append(mutated_query)
         self.restricted_queries_eval.append(self.Property_GQT)
 
     def generate_restricted_add_edge_label(self, mode=0):
-        if self.graph_pattern_mutation==0:
+        if "-[]-" not in self.base_path:
             return
-        if mode==0:
-            if "-[]-" not in self.base_path:
-                return
-            new_path = self.base_path.replace("-[]-", "-[:{}]-".format(choice(self.edge_labels)), 1)
-            pattern = self.cypher_query_pattern
-            mutated_query = pattern.format(
-                _match = self.base_match,
-                _path = new_path,
-                _predicate = self.base_predicate,
-                _return = self.base_return,
-                _other = self.base_other
-            )
-        if self.language=="gremlin":
-            mutated_query = self.strip_dots(mutated_query)
+        # randomly remove one edge label
+        x=randint(0,len(self.edge_labels))
+        conservative_edges = "|".join(self.edge_labels[:x]+self.edge_labels[x+1:])
+        new_path = self.base_path.replace("-[]-", "-[:{}]-".format(conservative_edges), 1)
+        pattern = self.cypher_query_pattern
+        mutated_query = pattern.format(
+            _match = self.base_match,
+            _path = new_path,
+            _predicate = self.base_predicate,
+            _return = self.base_return,
+            _other = self.base_other
+        )
         mutated_query = self.strip_spaces(mutated_query)
         self.restricted_queries.append(mutated_query)
         self.restricted_queries_eval.append(self.Property_GQT)
 
     def generate_restricted_add_edge_direction(self, mode=0):
-        if self.graph_pattern_mutation==0:
+        if ")-[]-(" not in self.base_path:
             return
-        if mode==0:
-            if ")-[]-(" not in self.base_path:
-                return
-            new_path = self.base_path.replace(")-[]-(", choice([")-[]->(", ")<-[]-("]), 1)
-            pattern = self.cypher_query_pattern
-            mutated_query = pattern.format(
-                _match = self.base_match,
-                _path = new_path,
-                _predicate = self.base_predicate,
-                _return = self.base_return,
-                _other = self.base_other
-            )
+        new_path = self.base_path.replace(")-[]-(", choice([")-[]->(", ")<-[]-("]), 1)
+        pattern = self.cypher_query_pattern
+        mutated_query = pattern.format(
+            _match = self.base_match,
+            _path = new_path,
+            _predicate = self.base_predicate,
+            _return = self.base_return,
+            _other = self.base_other
+        )
         mutated_query = self.strip_spaces(mutated_query)
         self.restricted_queries.append(mutated_query)
         self.restricted_queries_eval.append(self.Non_GQT)
 
     def generate_restricted_add_node(self, mode=0):
-        if self.graph_pattern_mutation==0:
+        if "count(1)" in self.base_return:
             return
-        if mode==0:
-            if "count(1)" in self.base_return:
-                return
-            new_path_pattern = ["{new_node}-[]-{path}", "{new_node}-[]->{path}", "{new_node}<-[]-{path}"]
-            new_node_label = choice(["", ":{}".format(choice(self.node_labels))])
-            new_node = "({}{})".format(self.random_symbol(), new_node_label)
-            new_path = choice(new_path_pattern).format(new_node=new_node, path=self.base_path)
-            new_return = self.base_return.replace("(", "(DISTINCT ", 1)
-            pattern = self.cypher_query_pattern
-            mutated_query = pattern.format(
-                _match = self.base_match,
-                _path = new_path,
-                _predicate = self.base_predicate,
-                _return = new_return,
-                _other = self.base_other
-            )
+        new_path_pattern = ["{new_node}-[]-{path}", "{new_node}-[]->{path}", "{new_node}<-[]-{path}"]
+        new_node_label = choice(["", ":{}".format(choice(self.node_labels))])
+        new_node = "({}{})".format(self.random_symbol(), new_node_label)
+        new_path = choice(new_path_pattern).format(new_node=new_node, path=self.base_path)
+        new_return = self.base_return.replace("(", "(DISTINCT ", 1)
+        pattern = self.cypher_query_pattern
+        mutated_query = pattern.format(
+            _match = self.base_match,
+            _path = new_path,
+            _predicate = self.base_predicate,
+            _return = new_return,
+            _other = self.base_other
+        )
         mutated_query = self.strip_spaces(mutated_query)
         self.restricted_queries.append(mutated_query)
         self.restricted_queries_eval.append(self.Non_GQT)
@@ -203,8 +202,6 @@ class CypherQueryMutator:
         # if you call the function with argument 1
         # then it is iterative mutation based on previous mutated query
         self.query_parser(base_query)
-        # the query number for iterative mutation times
-        recursive_mutated_query_num = 5
         # TODO: still have many mutation rules that I do not have time to implement
         # TODO: SplitNodeLabels - node with multiple labels can be splitted in to predicate
         # TODO: SplitEdgeLabels - edge with multiple labels can be splitted in to predicate
@@ -264,8 +261,6 @@ class CypherQueryMutator:
         return self.equivalent_queries, self.equivalent_queries_eval
 
     def generate_equivalent_count_other_symbol(self, mode=0):
-        if self.graph_pattern_mutation==0:
-            return
         if mode==0:
             if len(self.base_node_symbols)<2:
                 return

@@ -18,7 +18,9 @@ class RandomCypherGenerator():
     # path vectors store the previously tested graph query patterns
     # if we test duplicated patterns for many times (recorded in `stuck`)
     # we would increase the node number, now the condition is
+    # ! threshold
     # self.stuck==2*self._node_num*self._node_num
+
     _path_vectors = []
     _last_vector_length = 0
     stuck = 0
@@ -53,13 +55,16 @@ class RandomCypherGenerator():
         self.node_labels = node_labels
         self.edge_labels = edge_labels
         self.node_properties = node_properties
+        # connectivity matrix compresses info to decide whether two nodes are connectable
+        # it would be useful to create non-empty result graph query pattern
         self.connectivity_matrix = connectivity_matrix
-        pass
 
     # call before each run of test
     def init(self):
         config = configparser.ConfigParser()
         config.read('graphgenie.ini')
+        # this is the starting node number
+        # we usually suggest start from 2 to fuzz simpler bugs.
         self._node_num = int(config['testing_configs']['_node_num'])
         self._path_vectors = []
         self._last_vector_length = 0
@@ -92,21 +97,21 @@ class RandomCypherGenerator():
     def random_symbol(self):
         return ''.join(choice(string.ascii_lowercase) for _ in range(self.random_symbol_len))
 
+    # this part is simple; TODO: any other magic MATCHes?
     # _match indicates the query is a graph-matching query rather than add/update/delete queries
     # cypher: `match` or `optional match` clause
     def match_generator(self):
         match_candidates = ["MATCH", "OPTIONAL MATCH"]
         self._match = choice(match_candidates)
 
-    def random_node_multi_labels(self):
-        label_num = len(self.node_labels)
-        random_num = randint(2, label_num)
-        node_label = choice(self.node_labels)
+    def random_node_multi_labels(self, connectable_node_labels):
+        random_num = randint(2, len(connectable_node_labels))
+        node_label = choice(connectable_node_labels)
         for i in range(random_num-1):
             node_label += "|{}".format(choice(self.node_labels))
         return node_label
 
-    def random_edge_types(self):
+    def random_edge_multi_types(self):
         type_num = len(self.edge_labels)
         random_num = randint(2, type_num)
         edge_type = choice(self.edge_labels)
@@ -116,15 +121,22 @@ class RandomCypherGenerator():
 
     # given the previous node, use connectivity matrix to find connectable node labels
     def connectable_node_labels(self, prev_node_label, prev_node_direction):
+        # currently we do not support graph databases except neo4j
         if self.graphdb!="neo4j":
             return self.node_labels
+        # if this is the first node or previous node has no specific label
         if prev_node_label==None or prev_node_label=="" or "%" in self.node_labels:
             return self.node_labels
         possible_node_labels = []
+        # if there are multiple node labels, we need to consider all of them
         for each_prev_node_label in prev_node_label.split('|'):
             prev_node_index = self.node_labels.index(each_prev_node_label)
             for each_label in self.node_labels:
                 each_label_index = self.node_labels.index(each_label)
+                # for forward or backward direction, we refer to different indices
+                # matrix[src][dst]=1 means connectable
+                # otherwise not connectable; do not attach this node
+                # TODO: edge types are not considered!!
                 if prev_node_direction==">":
                     if self.connectivity_matrix[prev_node_index][each_label_index]!=0:
                         possible_node_labels.append(each_label)
@@ -132,6 +144,7 @@ class RandomCypherGenerator():
                     if self.connectivity_matrix[each_label_index][prev_node_index]!=0:
                         possible_node_labels.append(each_label)
                 else:
+                    # if no direction, need to consider both
                     if self.connectivity_matrix[prev_node_index][each_label_index]!=0 or self.connectivity_matrix[each_label_index][prev_node_index]!=0:
                         possible_node_labels.append(each_label)
         return possible_node_labels
@@ -145,13 +158,18 @@ class RandomCypherGenerator():
             "({node_sym})-[{edge_sym}]->"
             ]
         random_unit = choice(path_unit_candidates)
+        # node can have no symbols => anonymous nodes
+        # nodes without symbol cannot be used in predicates unless referring to the path() list?
         random_node_sym = self.random_symbol() if self.random_choice(self.node_symbol_rate) else ""
         random_edge_sym = self.random_symbol() if self.random_choice(self.edge_symbol_rate) else ""
         # determine whether we need node label
         if self.random_choice(self.node_label_rate) and random_node_sym!="" and len(connectable_node_labels)!=0:
             node_labels = ""
-            if self.graphdb=="neo4j" and self.multi_node_labels:
-                node_labels = self.random_node_multi_labels() if self.random_choice(self.multi_node_label_rate) else choice(connectable_node_labels)
+            # now we only support multi node labels in neo4j
+            # only when connectable node number >= 2
+            if self.graphdb=="neo4j" and self.multi_node_labels and len(connectable_node_labels)>=2:
+                # TODO: multiple labels need also to ask connectivity matrix
+                node_labels = self.random_node_multi_labels(connectable_node_labels) if self.random_choice(self.multi_node_label_rate) else choice(connectable_node_labels)
             else:
                 node_labels = choice(connectable_node_labels)
             random_node_sym = "{}:{}".format(random_node_sym, node_labels)
@@ -208,6 +226,8 @@ class RandomCypherGenerator():
             )
             path = ("({cyc})-{path}-({cyc})".format(cyc=cyclic_str, path="-".join(path.split("-")[1:-1])))
         self._path = path
+        # parse the path to collect available nodes/edges for later creating predicates
+        # TODO: finish it on the fly
         self.path_parser()
 
     def path_parser(self):
@@ -244,7 +264,6 @@ class RandomCypherGenerator():
         # the code below is for incremental base query generation
         # we encode the graph pattern into vectors
         # too many deduplicated queries would increase the node number of graph pattern
-
         if path_vector not in self._path_vectors:
             print("node num: {} tested vectors:{}".format(self._node_num, self._last_vector_length+1))
             self._path_vectors.append(path_vector)
@@ -259,7 +278,8 @@ class RandomCypherGenerator():
             self._last_vector_length = 0
             self._path_vectors.clear()
 
-    # TODO: add more predicate
+    # as we do not partition the predicate, I do not plan to create complex predicate
+    # TODO: but it is better to have more complex predicate
     def predicate_generator(self):
         pattern = "WHERE {}"
         predicate = "{} IS NOT NULL AND True".format(choice(self.node_symbols)) if len(self.node_symbols)>0 else "True"
@@ -278,10 +298,15 @@ class RandomCypherGenerator():
         )
 
     # for count() testing, we do not really need other clauses
+    # following clauses are just random selections. they can be improved
     def other_generator(self):
         _other = "{order_by} {skip} {limit}"
-        order_by_keywords = ["", "ORDER BY -1+1", "ORDER BY NULL"]
-        skip_keywords = ["", "SKIP 1", "SKIP 0", "SKIP 0", "SKIP 0", "SKIP 0", "SKIP 0", "SKIP 0",]
+        order_by_keywords = ["", "ORDER BY 1", "ORDER BY NULL"]
+        if len(self.node_symbols)>0:
+            order_by_keywords.append("ORDER BY {}".format(choice(self.node_symbols)))
+        # SKIP 0 is redundant
+        skip_keywords = ["", "SKIP 1", "SKIP 0", "SKIP 0", "SKIP 0", "SKIP 0", "SKIP 0", "SKIP 0"]
+        # LIMIT >=1 is redundant to return count
         limit_keywords = ["", "LIMIT 0", "LIMIT 1", "LIMIT 1", "LIMIT 2", "LIMIT 3", "LIMIT 5", "LIMIT 1"]
         self._other = _other.format(
             order_by = choice(order_by_keywords),
